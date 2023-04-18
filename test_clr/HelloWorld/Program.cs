@@ -46,7 +46,7 @@ namespace HelloWorld
             }
             try
             {
-                using (var sr = new StreamReader("/home/creslink/git/camdenreslink/clr-profiler/README.md"))
+                using (var sr = new StreamReader("../README.md"))
                 {
                     sr.ReadToEnd();
                 }

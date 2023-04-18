@@ -57,7 +57,7 @@ pub fn run_dotnet_core_profiled_process(
     // TODO: This file path will fail if we try to run these tests on windows.
     //       Come up with cross-platform way of building paths.
     let dotnet_artifact_path = format!(
-        "{p}test_clr/{n}/bin/Debug/netcoreapp{v}/{n}.dll",
+        "{p}test_clr/{n}/bin/Debug/net{v}/{n}.dll",
         p = root_prefix(),
         n = project_name,
         v = dotnet_version
