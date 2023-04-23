@@ -9,6 +9,12 @@ repository = "https://github.com/camdenreslink/clr-profiler"
 [dependencies]
 clr_profiler = { version = "0.1.0", path = "../clr_profiler" }
 uuid = "0.8"
+tonic = "0.7.1"
+tokio = { version = "1.18.0", features = ["macros", "rt-multi-thread"] }
+prost = "0.10.1"
+
+[build-dependencies]
+tonic-build = "0.7.2"
 
 [lib]
 crate-type = ["cdylib"]

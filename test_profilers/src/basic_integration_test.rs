@@ -5,13 +5,19 @@ use clr_profiler::{
     CorProfilerCallback4, CorProfilerCallback5, CorProfilerCallback6, CorProfilerCallback7,
     CorProfilerCallback8, CorProfilerCallback9, CorProfilerInfo, MetadataImportTrait, ProfilerInfo,
 };
-use std::slice;
+use std::{slice, sync::mpsc::Sender};
+use std::process;
 use uuid::Uuid;
+use std::sync::mpsc;
+
+use crate::client::{client_routine, ClientRequests};
+
 
 #[derive(Clone)]
 struct Profiler {
     clsid: Uuid,
     profiler_info: Option<ProfilerInfo>,
+    tx: Option<Sender<ClientRequests>>,
 }
 impl Profiler {
     fn profiler_info(&self) -> &ProfilerInfo {
@@ -23,6 +29,7 @@ impl ClrProfiler for Profiler {
         Profiler {
             clsid: Uuid::parse_str("DF63A541-5A33-4611-8829-F4E495985EE3").unwrap(),
             profiler_info: None,
+            tx: None
         }
     }
     fn clsid(&self) -> &Uuid {
@@ -38,6 +45,11 @@ impl CorProfilerCallback for Profiler {
         self.profiler_info()
             .set_event_mask(COR_PRF_MONITOR::COR_PRF_ALL)?; // COR_PRF_MONITOR_JIT_COMPILATION
 
+        let (tx, rx) = mpsc::channel();
+        tokio::spawn(async move {
+            client_routine(process::id(), rx).await;
+        });
+        self.tx = Some(tx);
         Ok(())
     }
     fn jit_compilation_started(
