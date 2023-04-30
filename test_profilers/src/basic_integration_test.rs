@@ -5,12 +5,12 @@ use clr_profiler::{
     CorProfilerCallback4, CorProfilerCallback5, CorProfilerCallback6, CorProfilerCallback7,
     CorProfilerCallback8, CorProfilerCallback9, CorProfilerInfo, MetadataImportTrait, ProfilerInfo,
 };
-use std::{slice, sync::mpsc::Sender};
+use std::{slice, sync::mpsc::{Sender}};
 use std::process;
 use uuid::Uuid;
 use std::sync::mpsc;
 
-use crate::client::{client_routine, ClientRequests};
+use crate::client::{client_routine, ClientRequests, ControlRequests};
 
 
 #[derive(Clone)]
@@ -18,6 +18,7 @@ struct Profiler {
     clsid: Uuid,
     profiler_info: Option<ProfilerInfo>,
     tx: Option<Sender<ClientRequests>>,
+    ctrl: Option<Sender<ControlRequests>>
 }
 impl Profiler {
     fn profiler_info(&self) -> &ProfilerInfo {
@@ -29,7 +30,8 @@ impl ClrProfiler for Profiler {
         Profiler {
             clsid: Uuid::parse_str("DF63A541-5A33-4611-8829-F4E495985EE3").unwrap(),
             profiler_info: None,
-            tx: None
+            tx: None,
+            ctrl: None,
         }
     }
     fn clsid(&self) -> &Uuid {
@@ -45,13 +47,26 @@ impl CorProfilerCallback for Profiler {
         self.profiler_info()
             .set_event_mask(COR_PRF_MONITOR::COR_PRF_ALL)?; // COR_PRF_MONITOR_JIT_COMPILATION
 
-        let (tx, rx) = mpsc::channel();
-        tokio::spawn(async move {
-            client_routine(process::id(), rx).await;
+        let (tx1, rx1) = mpsc::channel();
+        let (tx2, rx2) = mpsc::channel();
+        std::thread::spawn(move || {
+            match tokio::runtime::Runtime::new() {
+                Ok(rt) => {
+                    rt.block_on(async {
+                        println!("client started");
+                        client_routine(process::id(), rx1, rx2).await;
+                    });
+                },
+                Err(e) => {
+                    eprintln!("can't run gRPC client: {}", e);
+                }
+            }
         });
-        self.tx = Some(tx);
+        self.tx = Some(tx1);
+        self.ctrl = Some(tx2);
         Ok(())
     }
+
     fn jit_compilation_started(
         &mut self,
         function_id: FunctionID,
@@ -80,6 +95,24 @@ impl CorProfilerCallback for Profiler {
         // 4. Modify SEH tables
         Ok(())
     }
+
+    fn shutdown(&mut self) -> Result<(), FFI_HRESULT> {
+        match self.ctrl
+            .as_ref()
+            .unwrap()
+            .send(ControlRequests::Shutdown) {
+            Ok(_) => {
+                println!("notified gRPC-client about shutdown");
+                // todo: join the thread but can't keep it
+                Ok(())
+            },
+            Err(e) => {
+                eprintln!("connection with gRPC-client lost: {}", e);
+                Err(E_FAIL)
+            }
+        }
+    }
+
 }
 impl CorProfilerCallback2 for Profiler {}
 impl CorProfilerCallback3 for Profiler {}
