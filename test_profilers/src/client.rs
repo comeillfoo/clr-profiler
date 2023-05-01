@@ -1,5 +1,7 @@
 use std::sync::mpsc;
 
+use tonic::transport::Channel;
+
 use crate::logcollector::{SessionStartRequest, SessionFinishRequest, SessionFinishReason, TimestampRequest};
 use crate::logcollector::log_collector_client::LogCollectorClient;
 
@@ -22,7 +24,7 @@ enum ClientStates {
 
 
 pub async fn client_routine(pid: u32, cmd: String, path: String, rx: mpsc::Receiver<ClientRequests>, ctrl: mpsc::Receiver<ControlRequests>) {
-    let mut client = None;
+    let mut client: Option<LogCollectorClient<Channel>>= None;
     let mut state = ClientStates::Pending;
     loop {
         let control = ctrl.try_recv();
@@ -30,6 +32,18 @@ pub async fn client_routine(pid: u32, cmd: String, path: String, rx: mpsc::Recei
             Ok(request) => match request {
                 ControlRequests::Shutdown => {
                     // println!("shutdown consumed");
+                    match state {
+                        ClientStates::Pending => {
+                            let response = client
+                                .as_mut()
+                                .unwrap()
+                                .finish_session(SessionFinishRequest {
+                                    pid,
+                                    reason: SessionFinishReason::ClientInterrupted as i32 })
+                                .await;
+                        },
+                        _ => ()
+                    }
                     state = ClientStates::Stopped;
                 },
                 _ => {
@@ -66,7 +80,8 @@ pub async fn client_routine(pid: u32, cmd: String, path: String, rx: mpsc::Recei
                             .start_session(SessionStartRequest {
                                 pid,
                                 cmd: cmd.clone(),
-                                path: path.clone() }).await;
+                                path: path.clone() })
+                            .await;
                         match response {
                             Ok(resp) => {
                                 let op_response = resp.into_inner();
@@ -92,22 +107,37 @@ pub async fn client_routine(pid: u32, cmd: String, path: String, rx: mpsc::Recei
                 match result {
                     Ok(request) => match request {
                         ClassLoadStartStamp(time, payload) => {
-                            let response = client.as_mut().unwrap().class_load_start_stamp(TimestampRequest { pid, time, payload }).await;
+                            let response = client
+                                .as_mut()
+                                .unwrap()
+                                .class_load_start_stamp(TimestampRequest { pid, time, payload }).await;
                         },
                         ClassLoadFinishedStamp(time, payload) => {
-                            let response = client.as_mut().unwrap().class_load_finished_stamp(TimestampRequest { pid, time, payload }).await;
+                            let response = client
+                                .as_mut()
+                                .unwrap()
+                                .class_load_finished_stamp(TimestampRequest { pid, time, payload }).await;
                         },
                         ClassUnloadStartStamp(time, payload) => {
-                            let response = client.as_mut().unwrap().class_unload_start_stamp(TimestampRequest { pid, time, payload }).await;
+                            let response = client
+                                .as_mut()
+                                .unwrap()
+                                .class_unload_start_stamp(TimestampRequest { pid, time, payload }).await;
                         },
                         ClassUnloadFinishStamp(time, payload) => {
-                            let response = client.as_mut().unwrap().class_unload_finished_stamp(TimestampRequest { pid, time, payload }).await;
+                            let response = client
+                                .as_mut()
+                                .unwrap()
+                                .class_unload_finished_stamp(TimestampRequest { pid, time, payload }).await;
                         },
                     },
                     Err(error) => match error {
                         mpsc::TryRecvError::Disconnected => {
                             eprintln!("fatal error: disconnected from the main thread: {error}");
-                            let response = client.as_mut().unwrap().finish_session(SessionFinishRequest { pid, reason: SessionFinishReason::ServerInterrupted as i32 }).await;
+                            let response = client
+                                .as_mut()
+                                .unwrap()
+                                .finish_session(SessionFinishRequest { pid, reason: SessionFinishReason::ServerInterrupted as i32 }).await;
                             state = ClientStates::Stopped;
                         },
                         _ => ()
