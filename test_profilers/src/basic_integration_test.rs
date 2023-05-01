@@ -9,6 +9,7 @@ use std::{slice, sync::mpsc::{Sender}};
 use std::process;
 use uuid::Uuid;
 use std::sync::mpsc;
+use std::env;
 
 use crate::client::{client_routine, ClientRequests, ControlRequests};
 
@@ -54,7 +55,16 @@ impl CorProfilerCallback for Profiler {
                 Ok(rt) => {
                     rt.block_on(async {
                         println!("client started");
-                        client_routine(process::id(), rx1, rx2).await;
+                        let path = match env::var("PATH") {
+                            Ok(p) => p,
+                            Err(e) => String::from("")
+                        };
+                        client_routine(
+                            process::id(),
+                            env::args().collect::<Vec<String>>().join(" "),
+                            path,
+                            rx1,
+                            rx2).await;
                     });
                 },
                 Err(e) => {

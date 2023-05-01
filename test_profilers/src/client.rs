@@ -21,7 +21,7 @@ enum ClientStates {
 }
 
 
-pub async fn client_routine(pid: u32, rx: mpsc::Receiver<ClientRequests>, ctrl: mpsc::Receiver<ControlRequests>) {
+pub async fn client_routine(pid: u32, cmd: String, path: String, rx: mpsc::Receiver<ClientRequests>, ctrl: mpsc::Receiver<ControlRequests>) {
     let mut client = None;
     let mut state = ClientStates::Pending;
     loop {
@@ -60,7 +60,13 @@ pub async fn client_routine(pid: u32, rx: mpsc::Receiver<ClientRequests>, ctrl: 
                     },
                     _ => {
                         // try to establish session
-                        let response = client.as_mut().unwrap().start_session(SessionStartRequest { pid }).await;
+                        let response = client
+                            .as_mut()
+                            .unwrap()
+                            .start_session(SessionStartRequest {
+                                pid,
+                                cmd: cmd.clone(),
+                                path: path.clone() }).await;
                         match response {
                             Ok(resp) => {
                                 let op_response = resp.into_inner();
