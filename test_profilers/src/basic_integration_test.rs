@@ -25,6 +25,13 @@ impl Profiler {
     fn profiler_info(&self) -> &ProfilerInfo {
         self.profiler_info.as_ref().unwrap()
     }
+
+    fn get_time(&self) -> f64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs_f64()
+    }
 }
 impl ClrProfiler for Profiler {
     fn new() -> Profiler {
@@ -113,7 +120,7 @@ impl CorProfilerCallback for Profiler {
             .send(ControlRequests::Shutdown) {
             Ok(_) => {
                 println!("notified gRPC-client about shutdown");
-                // todo: join the thread but can't keep it
+                // TODO: join the thread but can't keep it
                 Ok(())
             },
             Err(e) => {
@@ -123,6 +130,24 @@ impl CorProfilerCallback for Profiler {
         }
     }
 
+    fn class_load_finished(
+            &mut self,
+            class_id: clr_profiler::ffi::ClassID,
+            hr_status: FFI_HRESULT,
+        ) -> Result<(), FFI_HRESULT> {
+        match self.tx
+            .as_ref()
+            .unwrap()
+            .send(ClientRequests::ClassLoadFinishedStamp(self.get_time(), "System.String".to_string())) {
+            Ok(_) => {
+                Ok(())
+            },
+            Err(e) => {
+                eprintln!("connection with gRPC-client lost: {}", e);
+                Err(E_FAIL)
+            }
+        }
+    }
 }
 impl CorProfilerCallback2 for Profiler {}
 impl CorProfilerCallback3 for Profiler {}
