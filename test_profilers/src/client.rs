@@ -2,7 +2,7 @@ use std::sync::mpsc;
 
 use tonic::transport::Channel;
 
-use crate::logcollector::{SessionStartRequest, SessionFinishRequest, SessionFinishReason, TimestampRequest};
+use crate::logcollector::{SessionStartRequest, SessionFinishRequest, SessionFinishReason, TimestampRequest, TimestampIdRequest};
 use crate::logcollector::log_collector_client::LogCollectorClient;
 
 pub enum ClientRequests {
@@ -10,6 +10,10 @@ pub enum ClientRequests {
     ClassLoadFinishedStamp(f64, String),
     ClassUnloadStartStamp(f64, String),
     ClassUnloadFinishStamp(f64, String),
+    ThreadCreatedStamp(f64, u64),
+    ThreadDestroyedStamp(f64, u64),
+    ThreadResumedStamp(f64, u64),
+    ThreadSuspendedStamp(f64, u64)
 }
 
 pub enum ControlRequests {
@@ -130,6 +134,30 @@ pub async fn client_routine(pid: u32, cmd: String, path: String, rx: mpsc::Recei
                                 .unwrap()
                                 .class_unload_finished_stamp(TimestampRequest { pid, time, payload }).await;
                         },
+                        ThreadCreatedStamp(time, id) => {
+                            let response = client
+                                .as_mut()
+                                .unwrap()
+                                .thread_created(TimestampIdRequest { pid, time, id }).await;
+                        },
+                        ThreadDestroyedStamp(time, id) => {
+                            let response = client
+                                .as_mut()
+                                .unwrap()
+                                .thread_destroyed(TimestampIdRequest { pid, time, id }).await;
+                        },
+                        ThreadResumedStamp(time, id) => {
+                            let response = client
+                                .as_mut()
+                                .unwrap()
+                                .thread_resumed(TimestampIdRequest { pid, time, id }).await;
+                        },
+                        ThreadSuspendedStamp(time, id) => {
+                            let response = client
+                                .as_mut()
+                                .unwrap()
+                                .thread_suspended(TimestampIdRequest { pid, time, id }).await;
+                        }
                     },
                     Err(error) => match error {
                         mpsc::TryRecvError::Disconnected => {
