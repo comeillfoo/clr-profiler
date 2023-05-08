@@ -52,7 +52,7 @@ impl Profiler {
         let module_metadata = self
             .profiler_info()
             .get_module_metadata(class_info.module_id, CorOpenFlags::ofRead)?;
-        let class_props = module_metadata.get_method_props(class_info.token)?;
+        let class_props = module_metadata.get_typedef_props(class_info.token)?;
         Ok(class_props.name)
     }
 }

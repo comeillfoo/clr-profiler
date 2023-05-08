@@ -1,9 +1,9 @@
 use crate::{
     ffi::{
         mdMethodDef, CorMethodAttr, CorMethodImpl, MetaDataImport as FFIMetaDataImport, HRESULT,
-        S_OK, WCHAR,
+        S_OK, WCHAR, mdTypeDef,
     },
-    MetadataImportTrait, MethodProps,
+    MetadataImportTrait, MethodProps, TypeDefProps,
 };
 use std::{mem::MaybeUninit, ptr};
 use widestring::U16CString;
@@ -90,6 +90,51 @@ impl MetadataImportTrait for MetadataImport {
                 })
             }
             _ => Err(hr),
+        }
+    }
+
+    fn get_typedef_props(&self, mb: mdTypeDef) -> Result<TypeDefProps, HRESULT> {
+        let mut name_buffer_length = MaybeUninit::uninit();
+        unsafe {
+            self.import().GetTypeDefProps(
+                mb,
+                ptr::null_mut(),
+                0,
+                name_buffer_length.as_mut_ptr(),
+                ptr::null_mut(),
+                ptr::null_mut()
+            )
+        };
+        let name_buffer_length = unsafe { name_buffer_length.assume_init() };
+        let mut name_buffer = Vec::<WCHAR>::with_capacity(name_buffer_length as usize);
+        unsafe { name_buffer.set_len(name_buffer_length as usize) };
+        let mut name_length = MaybeUninit::uninit();
+        let mut attr_flags = MaybeUninit::uninit();
+        let mut base_type = MaybeUninit::uninit();
+        let hr = unsafe {
+            self.import().GetTypeDefProps(
+                mb,
+                name_buffer.as_mut_ptr(),
+                name_buffer_length,
+                name_length.as_mut_ptr(),
+                attr_flags.as_mut_ptr(),
+                base_type.as_mut_ptr()
+            )
+        };
+        match hr {
+            S_OK => {
+                let name = U16CString::from_vec_with_nul(name_buffer)
+                    .unwrap()
+                    .to_string_lossy();
+                let attr_flags = unsafe { attr_flags.assume_init() };
+                let base_type = unsafe { base_type.assume_init() };
+                Ok(TypeDefProps {
+                    name,
+                    attr_flags,
+                    base_type
+                })
+            },
+            _ => Err(hr)
         }
     }
 }

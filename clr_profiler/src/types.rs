@@ -3,7 +3,7 @@ use crate::ffi::{
     CorMethodAttr, CorMethodImpl, CorProfilerMethodEnum, FunctionID, MetaDataImport, ModuleID,
     ProcessID, ReJITID, BYTE, COR_FIELD_OFFSET, COR_PRF_FRAME_INFO, COR_PRF_FUNCTION_ARGUMENT_INFO,
     COR_PRF_FUNCTION_ARGUMENT_RANGE, COR_PRF_HIGH_MONITOR, COR_PRF_MODULE_FLAGS, COR_PRF_MONITOR,
-    COR_PRF_RUNTIME_TYPE, LPCBYTE, PCCOR_SIGNATURE,
+    COR_PRF_RUNTIME_TYPE, LPCBYTE, PCCOR_SIGNATURE, DWORD, mdToken,
 };
 pub struct ArrayClassInfo {
     pub element_type: CorElementType,
@@ -118,4 +118,10 @@ pub struct MethodProps {
     pub sig_length: u32,
     pub rva: u32,
     pub impl_flags: CorMethodImpl,
+}
+
+pub struct TypeDefProps {
+    pub name: String,
+    pub attr_flags: DWORD, // TODO: CorTypeAttr
+    pub base_type: mdToken
 }
