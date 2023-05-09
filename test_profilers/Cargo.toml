@@ -12,6 +12,7 @@ uuid = "0.8"
 tonic = "0.7.1"
 tokio = { version = "1.18.0", features = ["macros", "rt-multi-thread"] }
 prost = "0.10.1"
+perf_monitor = "0.2"
 
 [build-dependencies]
 tonic-build = "0.7.2"

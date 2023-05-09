@@ -11,8 +11,7 @@ use uuid::Uuid;
 use std::sync::mpsc;
 use std::env;
 
-use crate::client::{client_routine, ClientRequests, ControlRequests};
-
+use crate::client::{client_routine, ClientRequests, ControlRequests, get_time};
 
 fn client_lost<T>(e: std::sync::mpsc::SendError<T>) -> Result<(), FFI_HRESULT> {
     eprintln!("connection with gRPC-client lost: {}", e);
@@ -24,18 +23,12 @@ struct Profiler {
     clsid: Uuid,
     profiler_info: Option<ProfilerInfo>,
     tx: Option<Sender<ClientRequests>>,
-    ctrl: Option<Sender<ControlRequests>>
+    ctrl: Option<Sender<ControlRequests>>,
+    client: Option<std::rc::Rc<std::thread::JoinHandle<()>>>
 }
 impl Profiler {
     fn profiler_info(&self) -> &ProfilerInfo {
         self.profiler_info.as_ref().unwrap()
-    }
-
-    fn get_time(&self) -> f64 {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs_f64()
     }
 
     fn send_request(tx: &Option<Sender<ClientRequests>>, request: ClientRequests) -> Result<(), FFI_HRESULT> {
@@ -63,6 +56,7 @@ impl ClrProfiler for Profiler {
             profiler_info: None,
             tx: None,
             ctrl: None,
+            client: None
         }
     }
     fn clsid(&self) -> &Uuid {
@@ -80,7 +74,7 @@ impl CorProfilerCallback for Profiler {
 
         let (tx1, rx1) = mpsc::channel();
         let (tx2, rx2) = mpsc::channel();
-        std::thread::spawn(move || {
+        self.client = Some(std::rc::Rc::new(std::thread::spawn(move || {
             match tokio::runtime::Runtime::new() {
                 Ok(rt) => {
                     rt.block_on(async {
@@ -101,7 +95,7 @@ impl CorProfilerCallback for Profiler {
                     eprintln!("can't run gRPC client: {}", e);
                 }
             }
-        });
+        })));
         self.tx = Some(tx1);
         self.ctrl = Some(tx2);
         Ok(())
@@ -143,7 +137,8 @@ impl CorProfilerCallback for Profiler {
             .send(ControlRequests::Shutdown) {
             Ok(_) => {
                 println!("notified gRPC-client about shutdown");
-                // TODO: join the thread but can't keep it
+                // TODO: consider more safe way
+                std::rc::Rc::try_unwrap(self.client.take().unwrap()).unwrap().join();
                 Ok(())
             },
             Err(e) => client_lost(e)
@@ -160,7 +155,7 @@ impl CorProfilerCallback for Profiler {
             Err(_) => "Unknown".to_string()
         };
         Profiler::send_request(&self.tx,
-            ClientRequests::ClassLoadStartStamp(self.get_time(), class_name))
+            ClientRequests::ClassLoadStartStamp(get_time(), class_name))
     }
 
     fn class_load_finished(
@@ -173,7 +168,7 @@ impl CorProfilerCallback for Profiler {
             Err(_) => "Unknown".to_string()
         };
         Profiler::send_request(&self.tx,
-            ClientRequests::ClassLoadFinishedStamp(self.get_time(), class_name))
+            ClientRequests::ClassLoadFinishedStamp(get_time(), class_name))
     }
 
     fn class_unload_started(
@@ -185,7 +180,7 @@ impl CorProfilerCallback for Profiler {
             Err(_) => "Unknown".to_string()
         };
         Profiler::send_request(&self.tx,
-            ClientRequests::ClassUnloadStartStamp(self.get_time(), class_name))
+            ClientRequests::ClassUnloadStartStamp(get_time(), class_name))
     }
 
     fn class_unload_finished(
@@ -198,7 +193,7 @@ impl CorProfilerCallback for Profiler {
             Err(_) => "Unknown".to_string()
         };
         Profiler::send_request(&self.tx,
-            ClientRequests::ClassUnloadFinishStamp(self.get_time(), class_name))
+            ClientRequests::ClassUnloadFinishStamp(get_time(), class_name))
     }
     // classes' handlers: END
 
@@ -207,23 +202,27 @@ impl CorProfilerCallback for Profiler {
 
     // threads' handlers: START
     fn thread_created(&mut self, thread_id: clr_profiler::ffi::ThreadID) -> Result<(), FFI_HRESULT> {
+        let thread_os_id = self.profiler_info().get_thread_info(thread_id)?;
         Profiler::send_request(&self.tx,
-            ClientRequests::ThreadCreatedStamp(self.get_time(), thread_id as u64))
+            ClientRequests::ThreadCreatedStamp(get_time(), thread_os_id as u64))
     }
 
     fn thread_destroyed(&mut self, thread_id: clr_profiler::ffi::ThreadID) -> Result<(), FFI_HRESULT> {
+        let thread_os_id = self.profiler_info().get_thread_info(thread_id)?;
         Profiler::send_request(&self.tx,
-            ClientRequests::ThreadDestroyedStamp(self.get_time(), thread_id as u64))
+            ClientRequests::ThreadDestroyedStamp(get_time(), thread_os_id as u64))
     }
 
     fn runtime_thread_resumed(&mut self, thread_id: clr_profiler::ffi::ThreadID) -> Result<(), FFI_HRESULT> {
+        let thread_os_id = self.profiler_info().get_thread_info(thread_id)?;
         Profiler::send_request(&self.tx,
-            ClientRequests::ThreadResumedStamp(self.get_time(), thread_id as u64))
+            ClientRequests::ThreadResumedStamp(get_time(), thread_os_id as u64))
     }
 
     fn runtime_thread_suspended(&mut self, thread_id: clr_profiler::ffi::ThreadID) -> Result<(), FFI_HRESULT> {
+        let thread_os_id = self.profiler_info().get_thread_info(thread_id)?;
         Profiler::send_request(&self.tx,
-            ClientRequests::ThreadSuspendedStamp(self.get_time(), thread_id as u64))
+            ClientRequests::ThreadSuspendedStamp(get_time(), thread_os_id as u64))
     }
     // threads' handlers: END
 }
