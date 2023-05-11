@@ -225,6 +225,18 @@ impl CorProfilerCallback for Profiler {
             ClientRequests::ThreadSuspendedStamp(get_time(), thread_os_id as u64))
     }
     // threads' handlers: END
+
+    // exceptions' handlers: START
+    fn exception_thrown(&mut self, thrown_object_id: clr_profiler::ffi::ObjectID) -> Result<(), FFI_HRESULT> {
+        let class_id = self.profiler_info().get_class_from_object(thrown_object_id)?;
+        let exception_class_name = match self.get_class_name(class_id) {
+            Ok(name) => name,
+            Err(_) => "Unknown".to_string()
+        };
+        Profiler::send_request(&self.tx,
+            ClientRequests::ExceptionThrownStamp(get_time(), exception_class_name))
+    }
+    // exceptions' handlers: END
 }
 impl CorProfilerCallback2 for Profiler {}
 impl CorProfilerCallback3 for Profiler {}

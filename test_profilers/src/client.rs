@@ -5,7 +5,7 @@ use perf_monitor::cpu::{processor_numbers, ProcessStat};
 use perf_monitor::io::get_process_io_stats;
 use tonic::transport::Channel;
 
-use crate::logcollector::{SessionStartRequest, SessionFinishRequest, SessionFinishReason, TimestampRequest, TimestampIdRequest, CommonStatisticsRequest};
+use crate::logcollector::{SessionStartRequest, SessionFinishRequest, SessionFinishReason, TimestampRequest, TimestampIdRequest, CommonStatistics};
 use crate::logcollector::log_collector_client::LogCollectorClient;
 
 pub enum ClientRequests {
@@ -16,7 +16,8 @@ pub enum ClientRequests {
     ThreadCreatedStamp(f64, u64),
     ThreadDestroyedStamp(f64, u64),
     ThreadResumedStamp(f64, u64),
-    ThreadSuspendedStamp(f64, u64)
+    ThreadSuspendedStamp(f64, u64),
+    ExceptionThrownStamp(f64, String),
 }
 
 pub enum ControlRequests {
@@ -36,23 +37,22 @@ pub fn get_time() -> f64 {
         .as_secs_f64()
 }
 
-async fn send_stats(pid: u32, client: &mut Option<LogCollectorClient<Channel>>) -> Result<(), std::io::Error> {
-    let cores = processor_numbers()?;
-    let mut process_stat = ProcessStat::cur()?;
-    let denormalized_cpu = process_stat.cpu()? * 100f64;
+fn get_stats() -> Option<CommonStatistics> {
+    let cores = match processor_numbers() {
+        Ok(n) => n,
+        Err(_) => return None
+    };
+    let mut process_stat = match ProcessStat::cur() {
+        Ok(cur) => cur,
+        Err(_) => return None
+    };
+    let denormalized_cpu = match process_stat.cpu() {
+        Ok(cpu) => cpu * 100f64,
+        Err(_) => return None
+    };
     let cpu = denormalized_cpu / (cores as f64);
     let io_stat = get_process_io_stats().unwrap();
-    let response = client
-        .as_mut()
-        .unwrap()
-        .stat(CommonStatisticsRequest {
-            pid,
-            time: get_time(),
-            cpu,
-            read_bytes: io_stat.read_bytes,
-            write_bytes: io_stat.write_bytes })
-        .await;
-    Ok(())
+    Some(CommonStatistics { cpu, read_bytes: io_stat.read_bytes, write_bytes: io_stat.write_bytes })
 }
 
 
@@ -135,55 +135,60 @@ pub async fn client_routine(pid: u32, cmd: String, path: String, rx: mpsc::Recei
                 let result = rx.try_recv();
                 match result {
                     Ok(request) => {
-                        let response = send_stats(pid, &mut client).await;
                         match request {
                             ClassLoadStartStamp(time, payload) => {
                                 let response = client
                                     .as_mut()
                                     .unwrap()
-                                    .class_load_start_stamp(TimestampRequest { pid, time, payload }).await;
+                                    .class_load_start_stamp(TimestampRequest { pid, time, payload, stats: get_stats() }).await;
                             },
                             ClassLoadFinishedStamp(time, payload) => {
                                 let response = client
                                     .as_mut()
                                     .unwrap()
-                                    .class_load_finished_stamp(TimestampRequest { pid, time, payload }).await;
+                                    .class_load_finished_stamp(TimestampRequest { pid, time, payload, stats: get_stats() }).await;
                             },
                             ClassUnloadStartStamp(time, payload) => {
                                 let response = client
                                     .as_mut()
                                     .unwrap()
-                                    .class_unload_start_stamp(TimestampRequest { pid, time, payload }).await;
+                                    .class_unload_start_stamp(TimestampRequest { pid, time, payload, stats: get_stats() }).await;
                             },
                             ClassUnloadFinishStamp(time, payload) => {
                                 let response = client
                                     .as_mut()
                                     .unwrap()
-                                    .class_unload_finished_stamp(TimestampRequest { pid, time, payload }).await;
+                                    .class_unload_finished_stamp(TimestampRequest { pid, time, payload, stats: get_stats() }).await;
                             },
                             ThreadCreatedStamp(time, id) => {
                                 let response = client
                                     .as_mut()
                                     .unwrap()
-                                    .thread_created(TimestampIdRequest { pid, time, id }).await;
+                                    .thread_created(TimestampIdRequest { pid, time, id, stats: get_stats() }).await;
                             },
                             ThreadDestroyedStamp(time, id) => {
                                 let response = client
                                     .as_mut()
                                     .unwrap()
-                                    .thread_destroyed(TimestampIdRequest { pid, time, id }).await;
+                                    .thread_destroyed(TimestampIdRequest { pid, time, id, stats: get_stats() }).await;
                             },
                             ThreadResumedStamp(time, id) => {
                                 let response = client
                                     .as_mut()
                                     .unwrap()
-                                    .thread_resumed(TimestampIdRequest { pid, time, id }).await;
+                                    .thread_resumed(TimestampIdRequest { pid, time, id, stats: get_stats() }).await;
                             },
                             ThreadSuspendedStamp(time, id) => {
                                 let response = client
                                     .as_mut()
                                     .unwrap()
-                                    .thread_suspended(TimestampIdRequest { pid, time, id }).await;
+                                    .thread_suspended(TimestampIdRequest { pid, time, id, stats: get_stats() }).await;
+                            },
+                            ExceptionThrownStamp(time, payload) => {
+                                let response = client
+                                    .as_mut()
+                                    .unwrap()
+                                    .exception_thrown(TimestampRequest { pid, time, payload, stats: get_stats() }).await;
                             }
                         }
                     },
