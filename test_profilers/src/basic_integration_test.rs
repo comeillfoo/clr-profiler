@@ -48,6 +48,15 @@ impl Profiler {
         let class_props = module_metadata.get_typedef_props(class_info.token)?;
         Ok(class_props.name)
     }
+
+    fn get_method_name(&self, function_id: FunctionID) -> Result<String, FFI_HRESULT> {
+        let function_info = self.profiler_info().get_function_info(function_id)?;
+        let module_metadata = self
+            .profiler_info()
+            .get_module_metadata(function_info.module_id, CorOpenFlags::ofRead)?;
+        let method_props = module_metadata.get_method_props(function_info.token)?;
+        Ok(method_props.name)
+    }
 }
 impl ClrProfiler for Profiler {
     fn new() -> Profiler {
@@ -101,34 +110,34 @@ impl CorProfilerCallback for Profiler {
         Ok(())
     }
 
+    // jit handlers: START
     fn jit_compilation_started(
         &mut self,
         function_id: FunctionID,
         _is_safe_to_block: bool,
     ) -> Result<(), HRESULT> {
-        let function_info = self.profiler_info().get_function_info(function_id)?;
-        let module_metadata = self
-            .profiler_info()
-            .get_module_metadata(function_info.module_id, CorOpenFlags::ofRead)?;
-        let method_props = module_metadata.get_method_props(function_info.token)?;
-        let il_body = self
-            .profiler_info()
-            .get_il_function_body(function_info.module_id, function_info.token)?;
-        if method_props.name == "TMethod" || method_props.name == "FMethod" {
-            // let bytes = unsafe {
-            //     slice::from_raw_parts(il_body.method_header, il_body.method_size as usize)
-            // };
-            let mut method =
-                Method::new(il_body.method_header, il_body.method_size).or(Err(E_FAIL))?;
-            println!("{:#?}", method);
-            let il = vec![nop()];
-        }
-        // 1. Modify method header
-        // 2. Add a prologue
-        // 3. Add an epilogue
-        // 4. Modify SEH tables
-        Ok(())
+        let method_name = match self.get_method_name(function_id) {
+            Ok(name) => name,
+            Err(_) => "Unknown".to_string()
+        };
+        Profiler::send_request(&self.tx,
+            ClientRequests::JitCompilationStartStamp(get_time(), method_name))
     }
+
+    fn jit_compilation_finished(
+            &mut self,
+            function_id: FunctionID,
+            hr_status: FFI_HRESULT, // TODO: Create enum that actual encodes possible statuses instead of hresult param
+            is_safe_to_block: bool,
+        ) -> Result<(), FFI_HRESULT> {
+        let method_name = match self.get_method_name(function_id) {
+            Ok(name) => name,
+            Err(_) => "Unknown".to_string()
+        };
+        Profiler::send_request(&self.tx,
+            ClientRequests::JitCompilationFinishStamp(get_time(), method_name))
+    }
+    // jit handlers: END
 
     fn shutdown(&mut self) -> Result<(), FFI_HRESULT> {
         match self.ctrl

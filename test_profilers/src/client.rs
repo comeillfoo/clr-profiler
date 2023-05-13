@@ -18,6 +18,8 @@ pub enum ClientRequests {
     ThreadResumedStamp(f64, u64),
     ThreadSuspendedStamp(f64, u64),
     ExceptionThrownStamp(f64, String),
+    JitCompilationStartStamp(f64, String),
+    JitCompilationFinishStamp(f64, String),
 }
 
 pub enum ControlRequests {
@@ -189,6 +191,18 @@ pub async fn client_routine(pid: u32, cmd: String, path: String, rx: mpsc::Recei
                                     .as_mut()
                                     .unwrap()
                                     .exception_thrown(TimestampRequest { pid, time, payload, stats: get_stats() }).await;
+                            },
+                            JitCompilationStartStamp(time, payload) => {
+                                let response = client
+                                    .as_mut()
+                                    .unwrap()
+                                    .jit_compilation_start_stamp(TimestampRequest { pid, time, payload, stats: get_stats() }).await;
+                            },
+                            JitCompilationFinishStamp(time, payload) => {
+                                let response = client
+                                    .as_mut()
+                                    .unwrap()
+                                    .jit_compilation_finished_stamp(TimestampRequest { pid, time, payload, stats: get_stats() }).await;
                             }
                         }
                     },
