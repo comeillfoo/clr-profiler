@@ -157,17 +157,17 @@ impl CorProfilerCallback for Profiler {
     }
 
     // classes' handlers: START
-    fn class_load_started(
-        &mut self,
-        class_id: clr_profiler::ffi::ClassID
-    ) -> Result<(), FFI_HRESULT> {
-        let class_name = match self.get_class_name(class_id) {
-            Ok(name) => name,
-            Err(_) => "Unknown".to_string()
-        };
-        Profiler::send_request(&self.tx,
-            ClientRequests::ClassLoadStartStamp(get_time(), class_name))
-    }
+    // fn class_load_started(
+    //     &mut self,
+    //     class_id: clr_profiler::ffi::ClassID
+    // ) -> Result<(), FFI_HRESULT> {
+    //     let class_name = match self.get_class_name(class_id) {
+    //         Ok(name) => name,
+    //         Err(_) => "Unknown".to_string()
+    //     };
+    //     Profiler::send_request(&self.tx,
+    //         ClientRequests::ClassLoadStartStamp(get_time(), class_name))
+    // }
 
     fn class_load_finished(
         &mut self,
@@ -182,17 +182,17 @@ impl CorProfilerCallback for Profiler {
             ClientRequests::ClassLoadFinishedStamp(get_time(), class_name))
     }
 
-    fn class_unload_started(
-        &mut self,
-        class_id: clr_profiler::ffi::ClassID
-    ) -> Result<(), FFI_HRESULT> {
-        let class_name = match self.get_class_name(class_id) {
-            Ok(name) => name,
-            Err(_) => "Unknown".to_string()
-        };
-        Profiler::send_request(&self.tx,
-            ClientRequests::ClassUnloadStartStamp(get_time(), class_name))
-    }
+    // fn class_unload_started(
+    //     &mut self,
+    //     class_id: clr_profiler::ffi::ClassID
+    // ) -> Result<(), FFI_HRESULT> {
+    //     let class_name = match self.get_class_name(class_id) {
+    //         Ok(name) => name,
+    //         Err(_) => "Unknown".to_string()
+    //     };
+    //     Profiler::send_request(&self.tx,
+    //         ClientRequests::ClassUnloadStartStamp(get_time(), class_name))
+    // }
 
     fn class_unload_finished(
         &mut self,

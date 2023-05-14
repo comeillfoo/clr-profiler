@@ -12,9 +12,7 @@ use crate::logcollector::{SessionStartRequest, SessionFinishRequest, SessionFini
 use crate::logcollector::log_collector_client::LogCollectorClient;
 
 pub enum ClientRequests {
-    ClassLoadStartStamp(f64, String),
     ClassLoadFinishedStamp(f64, String),
-    ClassUnloadStartStamp(f64, String),
     ClassUnloadFinishStamp(f64, String),
     ThreadCreatedStamp(f64, u64),
     ThreadDestroyedStamp(f64, u64),
@@ -143,23 +141,11 @@ pub async fn client_routine(pid: u32, cmd: String, path: String, rx: mpsc::Recei
                 match result {
                     Ok(request) => {
                         match request {
-                            ClassLoadStartStamp(time, payload) => {
-                                let response = client
-                                    .as_mut()
-                                    .unwrap()
-                                    .class_load_start_stamp(TimestampRequest { pid, time, payload, stats: get_stats() }).await;
-                            },
                             ClassLoadFinishedStamp(time, payload) => {
                                 let response = client
                                     .as_mut()
                                     .unwrap()
                                     .class_load_finished_stamp(TimestampRequest { pid, time, payload, stats: get_stats() }).await;
-                            },
-                            ClassUnloadStartStamp(time, payload) => {
-                                let response = client
-                                    .as_mut()
-                                    .unwrap()
-                                    .class_unload_start_stamp(TimestampRequest { pid, time, payload, stats: get_stats() }).await;
                             },
                             ClassUnloadFinishStamp(time, payload) => {
                                 let response = client
