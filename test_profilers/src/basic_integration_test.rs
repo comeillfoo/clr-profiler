@@ -3,7 +3,7 @@ use clr_profiler::{
     ffi::{CorOpenFlags, FunctionID, COR_PRF_MONITOR, E_FAIL, HRESULT},
     register, ClrProfiler, CorProfilerCallback, CorProfilerCallback2, CorProfilerCallback3,
     CorProfilerCallback4, CorProfilerCallback5, CorProfilerCallback6, CorProfilerCallback7,
-    CorProfilerCallback8, CorProfilerCallback9, CorProfilerInfo, MetadataImportTrait, ProfilerInfo, CorProfilerInfo2,
+    CorProfilerCallback8, CorProfilerCallback9, CorProfilerInfo, MetadataImportTrait, ProfilerInfo, CorProfilerInfo2, CorProfilerInfo4,
 };
 use std::{slice, sync::mpsc::{Sender, SendError}, error::Error};
 use std::process;
@@ -24,7 +24,8 @@ struct Profiler {
     profiler_info: Option<ProfilerInfo>,
     tx: Option<Sender<ClientRequests>>,
     ctrl: Option<Sender<ControlRequests>>,
-    client: Option<std::rc::Rc<std::thread::JoinHandle<()>>>
+    client: Option<std::rc::Rc<std::thread::JoinHandle<()>>>,
+    object_ids: std::collections::HashSet<clr_profiler::ffi::ObjectID>
 }
 impl Profiler {
     fn profiler_info(&self) -> &ProfilerInfo {
@@ -65,7 +66,8 @@ impl ClrProfiler for Profiler {
             profiler_info: None,
             tx: None,
             ctrl: None,
-            client: None
+            client: None,
+            object_ids: std::collections::HashSet::new()
         }
     }
     fn clsid(&self) -> &Uuid {
@@ -125,11 +127,11 @@ impl CorProfilerCallback for Profiler {
     }
 
     fn jit_compilation_finished(
-            &mut self,
-            function_id: FunctionID,
-            hr_status: FFI_HRESULT, // TODO: Create enum that actual encodes possible statuses instead of hresult param
-            is_safe_to_block: bool,
-        ) -> Result<(), FFI_HRESULT> {
+        &mut self,
+        function_id: FunctionID,
+        hr_status: FFI_HRESULT, // TODO: Create enum that actual encodes possible statuses instead of hresult param
+        is_safe_to_block: bool,
+    ) -> Result<(), FFI_HRESULT> {
         let method_name = match self.get_method_name(function_id) {
             Ok(name) => name,
             Err(_) => "Unknown".to_string()
@@ -156,9 +158,9 @@ impl CorProfilerCallback for Profiler {
 
     // classes' handlers: START
     fn class_load_started(
-            &mut self,
-            class_id: clr_profiler::ffi::ClassID
-        ) -> Result<(), FFI_HRESULT> {
+        &mut self,
+        class_id: clr_profiler::ffi::ClassID
+    ) -> Result<(), FFI_HRESULT> {
         let class_name = match self.get_class_name(class_id) {
             Ok(name) => name,
             Err(_) => "Unknown".to_string()
@@ -168,10 +170,10 @@ impl CorProfilerCallback for Profiler {
     }
 
     fn class_load_finished(
-            &mut self,
-            class_id: clr_profiler::ffi::ClassID,
-            hr_status: FFI_HRESULT,
-        ) -> Result<(), FFI_HRESULT> {
+        &mut self,
+        class_id: clr_profiler::ffi::ClassID,
+        hr_status: FFI_HRESULT,
+    ) -> Result<(), FFI_HRESULT> {
         let class_name = match self.get_class_name(class_id) {
             Ok(name) => name,
             Err(_) => "Unknown".to_string()
@@ -181,9 +183,9 @@ impl CorProfilerCallback for Profiler {
     }
 
     fn class_unload_started(
-            &mut self,
-            class_id: clr_profiler::ffi::ClassID
-        ) -> Result<(), FFI_HRESULT> {
+        &mut self,
+        class_id: clr_profiler::ffi::ClassID
+    ) -> Result<(), FFI_HRESULT> {
         let class_name = match self.get_class_name(class_id) {
             Ok(name) => name,
             Err(_) => "Unknown".to_string()
@@ -193,10 +195,10 @@ impl CorProfilerCallback for Profiler {
     }
 
     fn class_unload_finished(
-            &mut self,
-            class_id: clr_profiler::ffi::ClassID,
-            hr_status: FFI_HRESULT,
-        ) -> Result<(), FFI_HRESULT> {
+        &mut self,
+        class_id: clr_profiler::ffi::ClassID,
+        hr_status: FFI_HRESULT,
+    ) -> Result<(), FFI_HRESULT> {
         let class_name = match self.get_class_name(class_id) {
             Ok(name) => name,
             Err(_) => "Unknown".to_string()
@@ -207,28 +209,66 @@ impl CorProfilerCallback for Profiler {
     // classes' handlers: END
 
     // objects' handlers: START
+    fn object_allocated(
+        &mut self,
+        object_id: clr_profiler::ffi::ObjectID,
+        class_id: clr_profiler::ffi::ClassID
+    ) -> Result<(), FFI_HRESULT> {
+        let class_name = match self.get_class_name(class_id) {
+            Ok(name) => name,
+            Err(_) => "Unknown".to_string()
+        };
+        let object_size = match self.profiler_info().get_object_size_2(object_id) {
+            Ok(size) => size as u64,
+            Err(_) => 0
+        };
+        let object_gen = match self.profiler_info().get_object_generation(object_id) {
+            Ok(generation_range) => Some(generation_range.generation as u32),
+            Err(_) => None
+        };
+        self.object_ids.insert(object_id);
+        Profiler::send_request(&self.tx,
+            ClientRequests::ObjectAllocatedStamp(
+                get_time(),
+                object_id as u64,
+                object_size,
+                class_name,
+                object_gen))
+    }
     // objects' handlers: END
 
     // threads' handlers: START
-    fn thread_created(&mut self, thread_id: clr_profiler::ffi::ThreadID) -> Result<(), FFI_HRESULT> {
+    fn thread_created(
+        &mut self,
+        thread_id: clr_profiler::ffi::ThreadID
+    ) -> Result<(), FFI_HRESULT> {
         let thread_os_id = self.profiler_info().get_thread_info(thread_id)?;
         Profiler::send_request(&self.tx,
             ClientRequests::ThreadCreatedStamp(get_time(), thread_os_id as u64))
     }
 
-    fn thread_destroyed(&mut self, thread_id: clr_profiler::ffi::ThreadID) -> Result<(), FFI_HRESULT> {
+    fn thread_destroyed(
+        &mut self,
+        thread_id: clr_profiler::ffi::ThreadID
+    ) -> Result<(), FFI_HRESULT> {
         let thread_os_id = self.profiler_info().get_thread_info(thread_id)?;
         Profiler::send_request(&self.tx,
             ClientRequests::ThreadDestroyedStamp(get_time(), thread_os_id as u64))
     }
 
-    fn runtime_thread_resumed(&mut self, thread_id: clr_profiler::ffi::ThreadID) -> Result<(), FFI_HRESULT> {
+    fn runtime_thread_resumed(
+        &mut self,
+        thread_id: clr_profiler::ffi::ThreadID
+    ) -> Result<(), FFI_HRESULT> {
         let thread_os_id = self.profiler_info().get_thread_info(thread_id)?;
         Profiler::send_request(&self.tx,
             ClientRequests::ThreadResumedStamp(get_time(), thread_os_id as u64))
     }
 
-    fn runtime_thread_suspended(&mut self, thread_id: clr_profiler::ffi::ThreadID) -> Result<(), FFI_HRESULT> {
+    fn runtime_thread_suspended(
+        &mut self,
+        thread_id: clr_profiler::ffi::ThreadID
+    ) -> Result<(), FFI_HRESULT> {
         let thread_os_id = self.profiler_info().get_thread_info(thread_id)?;
         Profiler::send_request(&self.tx,
             ClientRequests::ThreadSuspendedStamp(get_time(), thread_os_id as u64))
@@ -236,7 +276,10 @@ impl CorProfilerCallback for Profiler {
     // threads' handlers: END
 
     // exceptions' handlers: START
-    fn exception_thrown(&mut self, thrown_object_id: clr_profiler::ffi::ObjectID) -> Result<(), FFI_HRESULT> {
+    fn exception_thrown(
+        &mut self,
+        thrown_object_id: clr_profiler::ffi::ObjectID
+    ) -> Result<(), FFI_HRESULT> {
         let class_id = self.profiler_info().get_class_from_object(thrown_object_id)?;
         let exception_class_name = match self.get_class_name(class_id) {
             Ok(name) => name,
@@ -247,7 +290,24 @@ impl CorProfilerCallback for Profiler {
     }
     // exceptions' handlers: END
 }
-impl CorProfilerCallback2 for Profiler {}
+impl CorProfilerCallback2 for Profiler {
+    fn garbage_collection_finished(&mut self) -> Result<(), FFI_HRESULT> {
+        let mut updates: Vec<(u64, Option<u32>)> = vec![];
+        // let profiler_info = self.profiler_info();
+        let mut new_object_ids = self.object_ids.clone();
+        new_object_ids.retain(|object_id| {
+            let object_gen = match self.profiler_info().get_object_generation(*object_id) {
+                Ok(generation_range) => Some(generation_range.generation as u32),
+                Err(_) => None
+            };
+            updates.push((*object_id as u64, object_gen));
+            object_gen.is_some()
+        });
+        self.object_ids = new_object_ids;
+        Profiler::send_request(&self.tx,
+            ClientRequests::GenerationsUpdateStamp(get_time(), updates))
+    }
+}
 impl CorProfilerCallback3 for Profiler {}
 impl CorProfilerCallback4 for Profiler {}
 impl CorProfilerCallback5 for Profiler {}
