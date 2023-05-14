@@ -293,7 +293,6 @@ impl CorProfilerCallback for Profiler {
 impl CorProfilerCallback2 for Profiler {
     fn garbage_collection_finished(&mut self) -> Result<(), FFI_HRESULT> {
         let mut updates: Vec<(u64, Option<u32>)> = vec![];
-        // let profiler_info = self.profiler_info();
         let mut new_object_ids = self.object_ids.clone();
         new_object_ids.retain(|object_id| {
             let object_gen = match self.profiler_info().get_object_generation(*object_id) {

@@ -6,7 +6,9 @@ use perf_monitor::cpu::{processor_numbers, ProcessStat};
 use perf_monitor::io::get_process_io_stats;
 use tonic::transport::Channel;
 
-use crate::logcollector::{SessionStartRequest, SessionFinishRequest, SessionFinishReason, TimestampRequest, TimestampIdRequest, CommonStatistics, ObjectAllocatedStampRequest, ObjectWithGeneration, UpdateGenerationsRequest};
+use crate::logcollector::{SessionStartRequest, SessionFinishRequest, SessionFinishReason,
+    TimestampRequest, TimestampIdRequest, CommonStatistics,
+    ObjectAllocatedStampRequest, ObjectGeneration, UpdateGenerationsRequest, OptionUint32};
 use crate::logcollector::log_collector_client::LogCollectorClient;
 
 pub enum ClientRequests {
@@ -207,8 +209,8 @@ pub async fn client_routine(pid: u32, cmd: String, path: String, rx: mpsc::Recei
                                     .unwrap()
                                     .jit_compilation_finished_stamp(TimestampRequest { pid, time, payload, stats: get_stats() }).await;
                             },
-                            ObjectAllocatedStamp(time, object_id, object_size, class_name, generation) => {
-                                let (generation, has_generation) = match generation {
+                            ObjectAllocatedStamp(time, id, size, class_name, generation) => {
+                                let (value, is_valid) = match generation {
                                     Some(value) => (value, true),
                                     None => (42, false)
                                 };
@@ -218,19 +220,21 @@ pub async fn client_routine(pid: u32, cmd: String, path: String, rx: mpsc::Recei
                                     .object_allocation_stamp(ObjectAllocatedStampRequest {
                                         pid,
                                         time,
-                                        object_gen: Some(ObjectWithGeneration { object_id, has_generation, generation }),
-                                        object_size,
+                                        object_gen: Some(ObjectGeneration {
+                                            id,
+                                            generation: Some(OptionUint32 { is_valid, value }) }),
+                                        size,
                                         class_name,
                                         stats: get_stats()
                                     }).await;
                             },
                             GenerationsUpdateStamp(time, updates) => {
                                 let objects = updates.iter().map(|object| {
-                                    let (generation, has_generation) = match object.1 {
+                                    let (value, is_valid) = match object.1 {
                                         Some(value) => (value, true),
                                         None => (42, false)
                                     };
-                                    ObjectWithGeneration { object_id: object.0, has_generation, generation }
+                                    ObjectGeneration { id: object.0, generation: Some(OptionUint32 { is_valid, value }) }
                                 }).collect();
                                 let response = client
                                     .as_mut()
