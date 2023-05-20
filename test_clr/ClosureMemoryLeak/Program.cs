@@ -4,19 +4,29 @@ using System.Collections;
 
 namespace ClosureMemoryLeak;
 
+public class Leakage
+{
+    public long Id { get; private set; }
+    public Leakage(long id)
+    {
+        this.Id = id;
+    }
+}
+
 public class Leaker
 {
-    private Queue<Func<long>> queue;
-    private long n = 8;
+    private Queue<Func<Leakage>> queue;
+    private Leakage n = new Leakage(8);
 
-    public Leaker(Queue<Func<long>> queue)
+    public Leaker(Queue<Func<Leakage>> queue)
     {
         this.queue = queue;
     }
 
     public void Leak()
     {
-        queue.Enqueue(() => n * n);
+        queue.Enqueue(() => n);
+        this.n = new Leakage(n.Id);
     }
 }
 
@@ -46,7 +56,7 @@ public class Program
 
     public static void LeakRoutine()
     {
-        var leaker = new Leaker(new Queue<Func<long>>());
+        var leaker = new Leaker(new Queue<Func<Leakage>>());
         for (long i = 0; i < 1000; ++i) leaker.Leak();
     }
 }
